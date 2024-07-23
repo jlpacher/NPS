@@ -1,0 +1,48 @@
+trigger:
+- dev
+- main
+
+jobs:
+- job: Treinamento
+  timeoutInMinutes: 360
+  pool:
+    vmImage: ubuntu-latest
+
+  variables:
+    isMain: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
+    currentDate: $[ format('{0:yyyy}-{0:MM}-{0:dd}', pipeline.startTime) ]
+    clusterName: prediction-nps
+    parse_flag: 'True'
+
+  steps:
+  # Security configurations
+  - task: DownloadSecureFile@1
+    name: downloadjson
+    inputs:
+      secureFile: 'azure-authentication.json'
+  - script: |
+      gcloud config set project myproject |
+      gcloud auth activate-service-account --key-file $(downloadjson.secureFIlePath)
+    displayName: Configure gcloud.
+
+  - script: |
+      gsutil cp -r . gs://myproject/notebooks/jupyter/Projeto_NPS/Producao
+    displayName: Copy repository to Cloud Storage.
+
+  - script: |
+      gcloud composer environments storage dags import \
+      --environment books \
+      --project myproject \
+      --location us-central1 \
+      --source ./airflow_prediction_nps_dev.py
+    condition: and(succeeded(), eq(variables.isMain, 'false'))
+    displayName: Deploy dag Dev.
+    
+  - script: |
+      gcloud composer environments storage dags import \
+      --environment books \
+      --project myproject \
+      --location us-central1 \
+      --source ./airflow_prediction_nps.py
+    condition: and(succeeded(), eq(variables.isMain, 'true'))
+    displayName: Deploy dag.
